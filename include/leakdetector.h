@@ -1,5 +1,5 @@
-#ifndef MEM_H
-#define MEM_H
+#ifndef LEAKDETECTOR_H
+#define LEAKDETECTOR_H
 
 #include <stdbool.h>
 #include <stdlib.h>
