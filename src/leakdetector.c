@@ -1,4 +1,6 @@
+#include <assert.h>
 #include <pthread.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +15,18 @@
 
 #define LIKELY(x)   __builtin_expect(!!(x), 1)
 #define UNLIKELY(x) __builtin_expect(!!(x), 0)
+#define UNUSED(x) ((void)(x))
+
+#ifdef LEAKDETECTOR
+bool leakdetector = true;
+#else
+bool leakdetector = false;
+#endif
+
+// Support tracy.
+#ifdef MEM_TRACY_ENABLE
+    #include <tracy/TracyC.h>
+#endif
 
 struct entry {
     void *ptr;
@@ -32,7 +46,7 @@ static void trap(void) {
     __asm__ volatile ("int $0x03");
 }
 
-void leakdetector_check(void) {
+static void _leakdetector_check(void) {
     if (entries_count > 0) {
         fprintf(stderr, "Memory leak detected! (%zu still alive)\n", entries_count);
 
@@ -48,10 +62,10 @@ void leakdetector_check(void) {
     }
 }
 
-static void setup_atexit_check(void) {
+static void _setup_atexit_check(void) {
     static bool setup = false;
     if (!setup) {
-        atexit(leakdetector_check);
+        atexit(_leakdetector_check);
 
         size_t initial_buckets_count = 1024;
         buckets = malloc(initial_buckets_count * sizeof *buckets);
@@ -71,7 +85,7 @@ static void setup_atexit_check(void) {
     }
 }
 
-static inline uintptr_t hash_ptr(uintptr_t ptr) {
+static inline uintptr_t _hash_ptr(uintptr_t ptr) {
     ptr ^= (ptr >> 33);
     ptr *= 0xff51afd7ed558ccdULL;
     ptr ^= (ptr >> 33);
@@ -80,12 +94,12 @@ static inline uintptr_t hash_ptr(uintptr_t ptr) {
     return ptr;
 }
 
-void leakdetector_add(void *ptr, size_t size, const char *file, int line) {
+static void _add(void *ptr, size_t size, const char *file, int line) {
     pthread_mutex_lock(&mutex);
 
-    setup_atexit_check();
+    _setup_atexit_check();
 
-    uintptr_t hash = hash_ptr((uintptr_t)ptr);
+    uintptr_t hash = _hash_ptr((uintptr_t)ptr);
     size_t index = hash % buckets_count;
 
     struct entry *new_entry = malloc(sizeof *new_entry);
@@ -107,20 +121,20 @@ void leakdetector_add(void *ptr, size_t size, const char *file, int line) {
     pthread_mutex_unlock(&mutex);
 }
 
-void leakdetector_remove(void *ptr) {
+static void _remove(void *ptr) {
     if (!ptr) {
         return;
     }
 
     pthread_mutex_lock(&mutex);
 
-    uintptr_t hash = hash_ptr((uintptr_t)ptr);
+    bool found = false;
+
+    uintptr_t hash = _hash_ptr((uintptr_t)ptr);
     size_t index = hash % buckets_count;
 
     struct entry *current = buckets[index];
     struct entry *prev = NULL;
-
-    bool found = false;
 
     while (current) {
         if (current->ptr == ptr) {
@@ -149,4 +163,98 @@ void leakdetector_remove(void *ptr) {
     // TODO: Resize the hashmap if necessary.
 
     pthread_mutex_unlock(&mutex);
+}
+
+void *leakdetector_malloc(bool must, size_t size, const char *file, int line) {
+    void *ptr = malloc(size);
+    if (must && UNLIKELY(!ptr)) {
+        fprintf(stderr, "Out of memory\n");
+        abort();
+    }
+
+    #ifdef MEM_TRACY_ENABLE
+    TracyCAlloc(ptr, size);
+    #endif
+
+    if (leakdetector) {
+        _add(ptr, size, file, line);
+    }
+
+    return ptr;
+}
+
+char *leakdetector_asprintf(bool must, const char *fmt, const char *file, int line, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    size_t size = vsnprintf(0, 0, fmt, ap) + 1;
+    va_end(ap);
+
+    char *str = leakdetector_malloc(must, size, file, line);
+    if (!str) {
+        return NULL;
+    }
+
+    va_start(ap, fmt);
+    if (str) {
+        vsnprintf(str, size, fmt, ap);
+    }
+    va_end(ap);
+
+    return str;
+}
+
+void *leakdetector_realloc(bool must, void *ptr, size_t size, const char *file, int line) {
+    if (ptr) {
+        #ifdef MEM_TRACY_ENABLE
+        TracyCFree(ptr);
+        #endif
+
+        if (leakdetector) {
+            _remove(ptr);
+        }
+    }
+
+    void *new_ptr = realloc(ptr, size);
+    if (must && UNLIKELY(!new_ptr)) {
+        fprintf(stderr, "Out of memory\n");
+        abort();
+    }
+
+    #ifdef MEM_TRACY_ENABLE
+    TracyCAlloc(new_ptr, size);
+    #endif
+
+    if (leakdetector) {
+        _add(new_ptr, size, file, line);
+    }
+
+    return new_ptr;
+}
+
+char *leakdetector_strdup(bool must, const char *str, const char *file, int line) {
+    assert(str);
+
+    size_t len = strlen(str);
+    char *dup = leakdetector_malloc(must, len + 1, file, line);
+    if (!dup) {
+        return NULL;
+    }
+    memcpy(dup, str, len);
+    dup[len] = '\0';
+
+    return dup;
+}
+
+void leakdetector_free(void *ptr) {
+    if (ptr) {
+        #ifdef MEM_TRACY_ENABLE
+        TracyCFree(ptr);
+        #endif
+
+        if (leakdetector) {
+            _remove(ptr);
+        }
+    }
+
+    free(ptr);
 }
