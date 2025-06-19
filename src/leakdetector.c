@@ -74,7 +74,7 @@ static void _setup_atexit_check(void) {
     if (!setup) {
         atexit(_leakdetector_check);
 
-        size_t initial_buckets_count = 1024;
+        size_t initial_buckets_count = 1;
         buckets = malloc(initial_buckets_count * sizeof *buckets);
 
         if (UNLIKELY(!buckets)) {
@@ -123,7 +123,36 @@ static void _add(void *ptr, size_t size, const char *file, int line) {
     buckets[index] = new_entry;
     entries_count++;
 
-    // TODO: Resize the hashmap if necessary.
+    // Resize the hashmap if necessary.
+    if (entries_count > buckets_count * 2) {
+        // fprintf(stderr, "Resizing leakdetector buckets from %zu to %zu\n", buckets_count, buckets_count * 2);
+
+        size_t new_buckets_count = buckets_count * 2;
+        struct entry **new_buckets = malloc(new_buckets_count * sizeof *new_buckets);
+        if (UNLIKELY(!new_buckets)) {
+            fprintf(stderr, "Failed to allocate memory for resized leakdetector buckets\n");
+            exit(EXIT_FAILURE);
+        }
+
+        for (size_t i = 0; i < new_buckets_count; i++) {
+            new_buckets[i] = NULL;
+        }
+
+        for (size_t i = 0; i < buckets_count; i++) {
+            struct entry *current = buckets[i];
+            while (current) {
+                struct entry *next = current->next;
+                size_t new_index = _hash_ptr((uintptr_t)current->ptr) % new_buckets_count;
+                current->next = new_buckets[new_index];
+                new_buckets[new_index] = current;
+                current = next;
+            }
+        }
+
+        free(buckets);
+        buckets = new_buckets;
+        buckets_count = new_buckets_count;
+    }
 
     pthread_mutex_unlock(&mutex);
 }
@@ -167,7 +196,36 @@ static void _remove(void *ptr) {
         trap();
     }
 
-    // TODO: Resize the hashmap if necessary.
+    // Resize the hashmap if necessary.
+    if (entries_count < buckets_count / 4 && buckets_count > 1) {
+        // fprintf(stderr, "Resizing leakdetector buckets from %zu to %zu\n", buckets_count, buckets_count / 2);
+
+        size_t new_buckets_count = buckets_count / 2;
+        struct entry **new_buckets = malloc(new_buckets_count * sizeof *new_buckets);
+        if (UNLIKELY(!new_buckets)) {
+            fprintf(stderr, "Failed to allocate memory for resized leakdetector buckets\n");
+            exit(EXIT_FAILURE);
+        }
+
+        for (size_t i = 0; i < new_buckets_count; i++) {
+            new_buckets[i] = NULL;
+        }
+
+        for (size_t i = 0; i < buckets_count; i++) {
+            struct entry *current = buckets[i];
+            while (current) {
+                struct entry *next = current->next;
+                size_t new_index = _hash_ptr((uintptr_t)current->ptr) % new_buckets_count;
+                current->next = new_buckets[new_index];
+                new_buckets[new_index] = current;
+                current = next;
+            }
+        }
+
+        free(buckets);
+        buckets = new_buckets;
+        buckets_count = new_buckets_count;
+    }
 
     pthread_mutex_unlock(&mutex);
 }

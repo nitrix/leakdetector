@@ -16,6 +16,6 @@ if(TRACY_ENABLE)
 endif()
 
 # Enable leak detector.
-if(MEM_LEAKDETECTOR)
+if(LEAKDETECTOR)
     target_compile_definitions(leakdetector PRIVATE "LEAKDETECTOR")
 endif()
