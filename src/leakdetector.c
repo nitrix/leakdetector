@@ -43,7 +43,13 @@ static size_t entries_count = 0;
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static void trap(void) {
+    #if defined(__x86_64__) || defined(__amd64__)
     __asm__ volatile ("int $0x03");
+    #elif defined(__aarch64__)
+    __asm__ volatile ("brk #0");
+    #else
+    #warning "trap() not implemented for this architecture"
+    #endif
 }
 
 static void _leakdetector_check(void) {
