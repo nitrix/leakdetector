@@ -25,7 +25,7 @@ bool leakdetector = false;
 #endif
 
 // Support tracy.
-#ifdef MEM_TRACY_ENABLE
+#ifdef TRACY_ENABLE
     #include <tracy/TracyC.h>
 #endif
 
@@ -237,7 +237,7 @@ void *leakdetector_malloc(bool must, size_t size, const char *file, int line) {
         abort();
     }
 
-    #ifdef MEM_TRACY_ENABLE
+    #ifdef TRACY_ENABLE
     TracyCAlloc(ptr, size);
     #endif
 
@@ -270,7 +270,7 @@ char *leakdetector_asprintf(bool must, const char *fmt, const char *file, int li
 
 void *leakdetector_realloc(bool must, void *ptr, size_t size, const char *file, int line) {
     if (ptr) {
-        #ifdef MEM_TRACY_ENABLE
+        #ifdef TRACY_ENABLE
         TracyCFree(ptr);
         #endif
 
@@ -285,7 +285,7 @@ void *leakdetector_realloc(bool must, void *ptr, size_t size, const char *file, 
         abort();
     }
 
-    #ifdef MEM_TRACY_ENABLE
+    #ifdef TRACY_ENABLE
     TracyCAlloc(new_ptr, size);
     #endif
 
@@ -312,7 +312,7 @@ char *leakdetector_strdup(bool must, const char *str, const char *file, int line
 
 void leakdetector_free(void *ptr) {
     if (ptr) {
-        #ifdef MEM_TRACY_ENABLE
+        #ifdef TRACY_ENABLE
         TracyCFree(ptr);
         #endif
 
