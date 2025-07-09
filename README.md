@@ -32,6 +32,24 @@ or at runtime if you live dangerously:
 leakdetector = true;
 ```
 
+## Output
+
+Misuses are printed to stderr during excution:
+
+```
+$ ./example
+Freeing unallocated memory: 00000254A18166A0
+```
+
+Leaks are printed at exit and breakpoints within a debugger:
+
+```
+$ ./example
+Memory leak detected! (2 still alive)
+        -> 0000024925F26030 allocated at /home/nitrix/example/foo.c:42 (8 bytes)
+        -> 0000024923C86A80 allocated at /home/nitrix/example/bar.c:159 (1000 bytes) 
+```
+
 ## License
 
 This is free and unencumbered software released into the public domain. See the [UNLICENSE](UNLICENSE) file for more details.
